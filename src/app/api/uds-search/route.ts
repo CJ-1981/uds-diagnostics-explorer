@@ -1,0 +1,136 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { generateDatabaseContext, type UdsCommand } from '@/lib/uds-data';
+
+function generateCustomContext(commands: UdsCommand[]): string {
+  if (!commands || commands.length === 0) return '';
+  
+  let ctx = '\n\nAdditionally, the user has defined these CUSTOM UDS commands:\n';
+  for (const cmd of commands) {
+    ctx += `\n### ${cmd.sid} - ${cmd.name}\n`;
+    if (cmd.description) ctx += `${cmd.description}\n`;
+    if (cmd.requestFormat) ctx += `Request: ${cmd.requestFormat}\n`;
+    if (cmd.responseFormat) ctx += `Response: ${cmd.responseFormat}\n`;
+    if (cmd.subFunctions.length > 0) {
+      ctx += 'Sub-functions:\n';
+      for (const sf of cmd.subFunctions) {
+        ctx += `  - ${sf.id}: ${sf.name} - ${sf.description}\n`;
+      }
+    }
+    if (cmd.negativeResponses.length > 0) {
+      ctx += 'Negative responses:\n';
+      for (const nrc of cmd.negativeResponses) {
+        ctx += `  - ${nrc.code}: ${nrc.name} - ${nrc.description}\n`;
+      }
+    }
+    if (cmd.usageNotes) ctx += `Usage: ${cmd.usageNotes}\n`;
+  }
+  return ctx;
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { question, config, history, customCommands } = body;
+
+    if (!question || typeof question !== 'string') {
+      return NextResponse.json(
+        { error: 'Question is required' },
+        { status: 400 }
+      );
+    }
+
+    const baseUrl = config?.baseUrl || 'https://api.openai.com/v1';
+    const token = config?.token;
+    const model = config?.model || 'gpt-4o-mini';
+
+    // Skip token check for local LLMs (Ollama, LM Studio, vLLM)
+    const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
+    if (!token && !isLocal) {
+      return NextResponse.json(
+        { error: 'API token is required. Please configure it in settings.' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[UDS Search] → ${baseUrl}/chat/completions | model: ${model} | local: ${isLocal}`);
+
+    // Build the system prompt with full UDS context + custom commands
+    const customContext = generateCustomContext(customCommands || []);
+
+    const systemPrompt = `You are an expert UDS (Unified Diagnostic Services, ISO 14229) diagnostic assistant. You help automotive engineers and technicians understand and use UDS commands.
+
+You have access to the complete UDS command database. Use the following reference data to answer questions accurately:
+
+${generateDatabaseContext()}${customContext}
+
+Guidelines for your responses:
+1. Be precise with hexadecimal values, byte formats, and parameter names
+2. Reference specific SIDs, sub-functions, and DIDs when relevant
+3. Explain the practical usage context (when/why to use a service)
+4. Mention related services and negative response codes when helpful
+5. Use markdown formatting for better readability
+6. If discussing hex bytes, use inline code formatting like \`0x10\`
+7. When explaining message formats, break down each byte's meaning
+8. Include timing considerations where relevant (P2, S3 timers)
+9. For programming-related questions, mention the required session and security access
+10. When the user asks about custom commands, prioritize those results. Mark custom commands with a [CUSTOM] tag.`;
+
+    // Build messages array
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      ...(history || []),
+      { role: 'user' as const, content: question },
+    ];
+
+    // Call the OpenAI-compatible API
+    const apiUrl = baseUrl.endsWith('/')
+      ? `${baseUrl}chat/completions`
+      : `${baseUrl}/chat/completions`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    console.log(`[UDS Search] Sending request to: ${apiUrl}`);
+    console.log(`[UDS Search] Model: ${model}, Messages: ${messages.length}, Has token: ${!!token}`);
+
+    const apiResponse = await fetch(apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 2048,
+      }),
+    });
+
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text();
+      let errorMessage = `API request failed with status ${apiResponse.status}`;
+
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage =
+          errorJson.error?.message || errorJson.message || errorMessage;
+      } catch {
+        errorMessage = errorText || errorMessage;
+      }
+
+      return NextResponse.json({ error: errorMessage }, { status: 502 });
+    }
+
+    const data = await apiResponse.json();
+    const answer = data.choices?.[0]?.message?.content || 'No response from AI model.';
+
+    return NextResponse.json({ answer });
+  } catch (error) {
+    console.error('UDS Search API error:', error);
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
