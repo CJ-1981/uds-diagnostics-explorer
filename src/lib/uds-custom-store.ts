@@ -249,10 +249,14 @@ export const useUdsCustomStore = create<UdsCustomStore>((set, get) => ({
   },
 }));
 
-// Hydrate from localStorage on client
-if (typeof window !== 'undefined') {
-  const stored = loadFromStorage();
-  if (stored.length > 0) {
-    useUdsCustomStore.setState({ customSets: stored });
+// Hook to hydrate store from localStorage on client (call in app root)
+let _hydrated = false;
+export function useHydrateCustomStore() {
+  if (typeof window !== 'undefined' && !_hydrated) {
+    _hydrated = true;
+    const stored = loadFromStorage();
+    if (stored.length > 0) {
+      useUdsCustomStore.setState({ customSets: stored });
+    }
   }
 }

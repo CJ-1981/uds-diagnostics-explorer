@@ -295,6 +295,7 @@ export default function CommandFormDialog({
                     <button
                       onClick={() => removeSubFunction(i)}
                       className="ml-1 hover:text-destructive transition-colors"
+                      aria-label={`Remove sub-function ${sf.id}`}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -323,7 +324,7 @@ export default function CommandFormDialog({
                   className="text-xs h-8"
                   onKeyDown={(e) => e.key === 'Enter' && addSubFunction()}
                 />
-                <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={addSubFunction}>
+                <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={addSubFunction} aria-label="Add sub-function">
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -342,6 +343,7 @@ export default function CommandFormDialog({
                     <button
                       onClick={() => removeNrc(i)}
                       className="ml-1 hover:text-destructive transition-colors"
+                      aria-label={`Remove NRC ${nrc.code}`}
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -370,7 +372,7 @@ export default function CommandFormDialog({
                   className="text-xs h-8"
                   onKeyDown={(e) => e.key === 'Enter' && addNrc()}
                 />
-                <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={addNrc}>
+                <Button type="button" variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={addNrc} aria-label="Add NRC">
                   <Plus className="h-3.5 w-3.5" />
                 </Button>
               </div>

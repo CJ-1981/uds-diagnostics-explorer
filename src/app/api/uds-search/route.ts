@@ -1,9 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateDatabaseContext, type UdsCommand } from '@/lib/uds-data';
 
+// Allowlisted provider domains to prevent SSRF
+const ALLOWED_DOMAINS = [
+  'api.openai.com',
+  'api.deepseek.com',
+  'api.mistral.ai',
+  'api.groq.com',
+  'api.together.xyz',
+  'api.fireworks.ai',
+  'api.perplexity.ai',
+  'api.cerebras.ai',
+  'api.sambanova.ai',
+  'api.ai21.com',
+  'openrouter.ai',
+];
+
+function isAllowedProvider(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    // Allow localhost for local LLMs
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+      return true;
+    }
+    return ALLOWED_DOMAINS.some(
+      (d) => hostname === d || hostname.endsWith('.' + d)
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Simple in-memory rate limiter
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 20; // max requests per window
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
+
 function generateCustomContext(commands: UdsCommand[]): string {
   if (!commands || commands.length === 0) return '';
-  
+
   let ctx = '\n\nAdditionally, the user has defined these CUSTOM UDS commands:\n';
   for (const cmd of commands) {
     ctx += `\n### ${cmd.sid} - ${cmd.name}\n`;
@@ -29,6 +76,15 @@ function generateCustomContext(commands: UdsCommand[]): string {
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+    if (!checkRateLimit(ip)) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait before trying again.' },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { question, config, history, customCommands } = body;
 
@@ -39,11 +95,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const baseUrl = config?.baseUrl || 'https://api.openai.com/v1';
-    const token = config?.token;
-    const model = config?.model || 'gpt-4o-mini';
+    if (!config || typeof config !== 'object') {
+      return NextResponse.json(
+        { error: 'Config is required' },
+        { status: 400 }
+      );
+    }
 
-    // Skip token check for local LLMs (Ollama, LM Studio, vLLM)
+    const baseUrl = config.baseUrl || 'https://api.openai.com/v1';
+    const token = config.token;
+    const model = config.model || 'gpt-4o-mini';
+
+    // Validate model name (prevent injection)
+    if (typeof model !== 'string' || model.length > 100) {
+      return NextResponse.json(
+        { error: 'Invalid model name' },
+        { status: 400 }
+      );
+    }
+
+    // Validate history size
+    if (history && (!Array.isArray(history) || history.length > 50)) {
+      return NextResponse.json(
+        { error: 'Invalid history: must be an array of at most 50 messages' },
+        { status: 400 }
+      );
+    }
+
+    // Validate customCommands size
+    if (customCommands && (!Array.isArray(customCommands) || customCommands.length > 200)) {
+      return NextResponse.json(
+        { error: 'Invalid customCommands' },
+        { status: 400 }
+      );
+    }
+
+    // SSRF protection: validate provider domain
+    if (!isAllowedProvider(baseUrl)) {
+      return NextResponse.json(
+        { error: 'Provider not allowed. Please use a known AI provider or localhost.' },
+        { status: 403 }
+      );
+    }
+
     const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
     if (!token && !isLocal) {
       return NextResponse.json(
@@ -51,8 +145,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    console.log(`[UDS Search] → ${baseUrl}/chat/completions | model: ${model} | local: ${isLocal}`);
 
     // Build the system prompt with full UDS context + custom commands
     const customContext = generateCustomContext(customCommands || []);
@@ -82,7 +174,6 @@ Guidelines for your responses:
       { role: 'user' as const, content: question },
     ];
 
-    // Call the OpenAI-compatible API
     const apiUrl = baseUrl.endsWith('/')
       ? `${baseUrl}chat/completions`
       : `${baseUrl}/chat/completions`;
@@ -94,19 +185,26 @@ Guidelines for your responses:
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    console.log(`[UDS Search] Sending request to: ${apiUrl}`);
-    console.log(`[UDS Search] Model: ${model}, Messages: ${messages.length}, Has token: ${!!token}`);
+    // AbortController with 30s timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
 
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.3,
-        max_tokens: 2048,
-      }),
-    });
+    let apiResponse: Response;
+    try {
+      apiResponse = await fetch(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.3,
+          max_tokens: 2048,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text();
@@ -128,7 +226,12 @@ Guidelines for your responses:
 
     return NextResponse.json({ answer });
   } catch (error) {
-    console.error('UDS Search API error:', error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      return NextResponse.json(
+        { error: 'Request timed out after 30 seconds. The AI provider may be slow or unreachable.' },
+        { status: 504 }
+      );
+    }
     const message =
       error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });

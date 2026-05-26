@@ -992,14 +992,30 @@ export const udsGroups: UdsGroup[] = [
   },
 ];
 
-// Helper: Get all commands as a flat array
+// Helper: Get all commands as a flat array (deduplicated by SID)
 export function getAllCommands(): UdsCommand[] {
-  return udsGroups.flatMap((g) => g.commands);
+  const seen = new Set<string>();
+  const result: UdsCommand[] = [];
+  for (const group of udsGroups) {
+    for (const cmd of group.commands) {
+      if (!seen.has(cmd.sid)) {
+        seen.add(cmd.sid);
+        result.push(cmd);
+      }
+    }
+  }
+  return result;
 }
 
-// Helper: Find a command by SID
+// Helper: Find a command by SID (returns the first match across groups)
 export function findCommandBySid(sid: string): UdsCommand | undefined {
-  return getAllCommands().find((c) => c.sid === sid);
+  // Search in order: session, data, io, memory, security
+  // Prefer the primary (non-duplicate) definition
+  for (const group of udsGroups.slice(0, 4)) {
+    const match = group.commands.find((c) => c.sid === sid);
+    if (match) return match;
+  }
+  return undefined;
 }
 
 // Helper: Find a group by ID
@@ -1019,8 +1035,13 @@ export function getAllNegativeResponseCodes(): UdsNegativeResponse[] {
   );
 }
 
-// For AI search: Generate a compact text representation of the entire database
+// Module-level cache for generateDatabaseContext (built once, reused across all calls)
+let _cachedContext: string | null = null;
+
 export function generateDatabaseContext(): string {
+  if (_cachedContext) return _cachedContext;
+
+  const seen = new Set<string>();
   let context = "UDS (ISO 14229) Command Reference Database:\n\n";
 
   for (const group of udsGroups) {
@@ -1028,6 +1049,10 @@ export function generateDatabaseContext(): string {
     context += `${group.description}\n\n`;
 
     for (const cmd of group.commands) {
+      // Skip duplicate SIDs (e.g., security group re-definitions)
+      if (seen.has(cmd.sid)) continue;
+      seen.add(cmd.sid);
+
       context += `### ${cmd.sid} ${cmd.name}\n`;
       context += `${cmd.description}\n`;
       context += `Request: ${cmd.requestFormat}\n`;
@@ -1059,5 +1084,6 @@ export function generateDatabaseContext(): string {
     }
   }
 
+  _cachedContext = context;
   return context;
 }

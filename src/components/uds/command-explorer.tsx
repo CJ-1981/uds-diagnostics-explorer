@@ -327,6 +327,7 @@ export default function CommandExplorer() {
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => removeCustomSet(set.id)}
+                  aria-label={`Remove ${set.name}`}
                 >
                   <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
                 </Button>
@@ -351,6 +352,7 @@ export default function CommandExplorer() {
             size="icon"
             className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
             onClick={() => setSearchQuery('')}
+            aria-label="Clear search"
           >
             <X className="h-3.5 w-3.5" />
           </Button>

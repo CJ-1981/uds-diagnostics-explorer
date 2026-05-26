@@ -33,6 +33,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { useUdsCustomStore } from '@/lib/uds-custom-store';
+import type { UdsCommand } from '@/lib/uds-data';
 
 interface LLMConfig {
   baseUrl: string;
@@ -46,8 +47,10 @@ interface Message {
   timestamp: Date;
 }
 
+const MAX_STORED_MESSAGES = 50;
+
 // Build system prompt for client-side (local LLM) calls
-function buildSystemPrompt(dbContext: () => string, customCommands: any[]): string {
+function buildSystemPrompt(dbContext: () => string, customCommands: UdsCommand[]): string {
   let customCtx = '';
   if (customCommands?.length > 0) {
     customCtx = '\n\nAdditionally, the user has defined these CUSTOM UDS commands:\n';
@@ -83,8 +86,9 @@ async function callLocalLLMDirect(
   config: LLMConfig,
   question: string,
   messages: Message[],
-  customCommands: any[],
+  customCommands: UdsCommand[],
   dbContext: () => string,
+  signal: AbortSignal,
 ): Promise<string> {
   const apiUrl = config.baseUrl.endsWith('/')
     ? `${config.baseUrl}chat/completions`
@@ -108,6 +112,7 @@ async function callLocalLLMDirect(
       temperature: 0.3,
       max_tokens: 2048,
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -143,8 +148,9 @@ const POPULAR_PROVIDERS = [
   { name: 'vLLM (local)', url: 'http://localhost:8000/v1' },
 ];
 
-const STORAGE_KEY_CONFIG = 'uds-llm-config';
 const STORAGE_KEY_MESSAGES = 'uds-chat-messages';
+// Token stored in sessionStorage for security (cleared on tab close)
+const SESSION_KEY_CONFIG = 'uds-llm-config';
 
 const defaultConfig: LLMConfig = {
   baseUrl: 'https://api.openai.com/v1',
@@ -161,12 +167,27 @@ const suggestedQueries = [
   'How to control an actuator with UDS?',
 ];
 
-export default function AISearch() {
-  const [config, setConfig] = useState<LLMConfig>(() => {
-    if (typeof window === 'undefined') return defaultConfig;
-    const saved = localStorage.getItem(STORAGE_KEY_CONFIG);
+function loadConfig(): LLMConfig {
+  if (typeof window === 'undefined') return defaultConfig;
+  try {
+    const saved = sessionStorage.getItem(SESSION_KEY_CONFIG);
     return saved ? JSON.parse(saved) : defaultConfig;
-  });
+  } catch {
+    return defaultConfig;
+  }
+}
+
+function saveConfigToSession(config: LLMConfig) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(SESSION_KEY_CONFIG, JSON.stringify(config));
+  } catch {
+    /* quota exceeded — silently ignore */
+  }
+}
+
+export default function AISearch() {
+  const [config, setConfig] = useState<LLMConfig>(loadConfig);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -176,39 +197,54 @@ export default function AISearch() {
   const [providersOpen, setProvidersOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputValueRef = useRef(input);
+  const isSendingRef = useRef(false);
 
+  // Keep ref in sync for stable callback
+  inputValueRef.current = input;
+
+  // Hydrate messages from localStorage on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const saved = localStorage.getItem(STORAGE_KEY_MESSAGES);
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MESSAGES);
+      if (saved) {
         const parsed: Message[] = JSON.parse(saved);
-        // JSON.parse turns Date objects into strings — convert them back
-        const restored = parsed.map((m) => ({
+        const restored = parsed.slice(0, MAX_STORED_MESSAGES).map((m) => ({
           ...m,
           timestamp: m.timestamp instanceof Date ? m.timestamp : new Date(m.timestamp),
         }));
         setMessages(restored);
-      } catch {
-        /* ignore */
       }
+    } catch {
+      /* ignore corrupt data */
     }
   }, []);
 
+  // Save config to sessionStorage (not localStorage — tokens are sensitive)
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(config));
+    saveConfigToSession(config);
   }, [config]);
 
+  // Debounced save messages to localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (messages.length > 0) {
-      localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(messages));
-    } else {
-      localStorage.removeItem(STORAGE_KEY_MESSAGES);
-    }
+    const id = setTimeout(() => {
+      try {
+        if (messages.length > 0) {
+          const capped = messages.slice(-MAX_STORED_MESSAGES);
+          localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(capped));
+        } else {
+          localStorage.removeItem(STORAGE_KEY_MESSAGES);
+        }
+      } catch {
+        /* quota exceeded — silently ignore */
+      }
+    }, 500);
+    return () => clearTimeout(id);
   }, [messages]);
 
+  // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -232,17 +268,26 @@ export default function AISearch() {
   const clearChat = () => {
     setMessages([]);
     setError(null);
-    localStorage.removeItem(STORAGE_KEY_MESSAGES);
+    try {
+      localStorage.removeItem(STORAGE_KEY_MESSAGES);
+    } catch {
+      /* ignore */
+    }
   };
 
   const sendMessage = useCallback(
     async (query?: string) => {
-      const content = query || input.trim();
+      const content = query || inputValueRef.current.trim();
       if (!content || isLoading) return;
+
+      // Request deduplication guard
+      if (isSendingRef.current) return;
+      isSendingRef.current = true;
 
       if (!config.token && !isLocalhost(config.baseUrl)) {
         setError('Please configure your API token in settings first.');
         setSettingsOpen(true);
+        isSendingRef.current = false;
         return;
       }
 
@@ -252,37 +297,48 @@ export default function AISearch() {
         timestamp: new Date(),
       };
 
-      const newMessages = [...messages, userMessage];
-      setMessages(newMessages);
+      setMessages((prev) => [...prev, userMessage]);
       setInput('');
       setError(null);
       setIsLoading(true);
 
+      // Set up fetch timeout
+      const controller = new AbortController();
+      const fetchTimeout = setTimeout(() => controller.abort(), 30_000);
+
       try {
-        // Include custom commands in the AI context
         const customCommands = useUdsCustomStore.getState().getCustomCommandsFlat();
 
         let answer: string;
 
         if (isLocalhost(config.baseUrl)) {
-          // LOCAL LLM: call directly from browser (server proxy can't reach user's localhost)
           const { generateDatabaseContext } = await import('@/lib/uds-data');
           try {
-            answer = await callLocalLLMDirect(config, content, newMessages, customCommands, generateDatabaseContext);
+            answer = await callLocalLLMDirect(
+              config,
+              content,
+              [...messages, userMessage],
+              customCommands,
+              generateDatabaseContext,
+              controller.signal,
+            );
           } catch (localErr) {
             const msg = localErr instanceof Error ? localErr.message : '';
-            // Detect CORS / network errors — means the app is deployed and can't reach user's localhost
-            if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Load failed') || msg.includes('fetch failed')) {
+            if (
+              msg.includes('Failed to fetch') ||
+              msg.includes('NetworkError') ||
+              msg.includes('Load failed') ||
+              msg.includes('fetch failed')
+            ) {
               throw new Error(
                 'Cannot reach local LLM — this app is running on a remote server. ' +
-                'Local LLMs (localhost) only work when you run the app locally with "npm run dev". ' +
-                'Alternatively, use a cloud AI provider (click Settings → browse providers).'
+                  'Local LLMs (localhost) only work when you run the app locally with "npm run dev". ' +
+                  'Alternatively, use a cloud AI provider (click Settings → browse providers).',
               );
             }
             throw localErr;
           }
         } else {
-          // CLOUD LLM: route via server-side API (keeps API key secure)
           const res = await fetch('/api/uds-search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -293,7 +349,7 @@ export default function AISearch() {
                 token: config.token,
                 model: config.model,
               },
-              history: newMessages.slice(0, -1).map((m) => ({
+              history: [...messages, userMessage].slice(0, -1).map((m) => ({
                 role: m.role,
                 content: m.content,
               })),
@@ -317,15 +373,21 @@ export default function AISearch() {
         };
         setMessages((prev) => [...prev, assistantMessage]);
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
-        setError(errorMsg);
+        if (err instanceof Error && err.name === 'AbortError') {
+          setError('Request timed out after 30 seconds. The AI provider may be slow or unreachable.');
+        } else {
+          const errorMsg = err instanceof Error ? err.message : 'Unknown error occurred';
+          setError(errorMsg);
+        }
         // Remove the user message if request failed
         setMessages((prev) => prev.slice(0, -1));
       } finally {
+        clearTimeout(fetchTimeout);
         setIsLoading(false);
+        isSendingRef.current = false;
       }
     },
-    [input, isLoading, config, messages]
+    [isLoading, config]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -353,6 +415,7 @@ export default function AISearch() {
             className="h-8 w-8"
             onClick={clearChat}
             title="Clear chat"
+            aria-label="Clear chat history"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
@@ -374,7 +437,7 @@ export default function AISearch() {
                   LLM Configuration
                 </DialogTitle>
                 <DialogDescription>
-                  Configure your OpenAI-compatible API connection. Local LLMs (Ollama, LM Studio, vLLM) do not require a token.
+                  Configure your OpenAI-compatible API connection. Local LLMs (Ollama, LM Studio, vLLM) do not require a token. Your API token is stored only for this session.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 pt-2">
@@ -385,7 +448,7 @@ export default function AISearch() {
                     </Label>
                     <Dialog open={providersOpen} onOpenChange={setProvidersOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-4 w-4 p-0 text-muted-foreground hover:text-foreground" title="Browse popular providers">
+                        <Button variant="ghost" size="icon" className="h-4 w-4 p-0 text-muted-foreground hover:text-foreground" title="Browse popular providers" aria-label="Browse popular AI providers">
                           <ChevronDown className="h-3 w-3" />
                         </Button>
                       </DialogTrigger>
@@ -409,7 +472,7 @@ export default function AISearch() {
                                   navigator.clipboard.writeText(provider.url).catch(() => {});
                                   setProvidersOpen(false);
                                 }}
-                                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-left hover:bg-muted/60 transition-colors group"
+                                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-md text-left hover:bg-muted/60 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                               >
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium truncate">{provider.name}</p>
@@ -459,6 +522,7 @@ export default function AISearch() {
                       size="icon"
                       className="absolute right-0.5 top-1/2 -translate-y-1/2 h-7 w-7"
                       onClick={() => setShowToken(!showToken)}
+                      aria-label={showToken ? 'Hide API token' : 'Show API token'}
                     >
                       {showToken ? (
                         <EyeOff className="h-3.5 w-3.5" />
@@ -534,7 +598,7 @@ export default function AISearch() {
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            <AnimatePresence initial={false}>
+            <AnimatePresence initial={false} presenceAffectsLayout={false}>
               {messages.map((msg, i) => (
                 <motion.div
                   key={i}
@@ -587,7 +651,7 @@ export default function AISearch() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Analyzing UDS database...</span>
+                  <span>Thinking...</span>
                 </div>
               </motion.div>
             )}
@@ -611,6 +675,7 @@ export default function AISearch() {
               size="icon"
               className="h-5 w-5 flex-shrink-0"
               onClick={() => setError(null)}
+              aria-label="Dismiss error"
             >
               <X className="h-3 w-3" />
             </Button>
@@ -630,7 +695,7 @@ export default function AISearch() {
           className="flex-1 resize-none rounded-lg border bg-muted/40 px-3 py-2.5 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring min-h-[40px] max-h-[120px]"
           style={{
             height: 'auto',
-            overflow: 'hidden',
+            overflowY: 'auto',
           }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
@@ -642,6 +707,7 @@ export default function AISearch() {
           onClick={() => sendMessage()}
           disabled={!input.trim() || isLoading}
           className="h-auto px-4"
+          aria-label="Send message"
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
