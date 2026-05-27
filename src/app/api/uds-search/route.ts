@@ -14,13 +14,18 @@ const ALLOWED_DOMAINS = [
   'api.sambanova.ai',
   'api.ai21.com',
   'openrouter.ai',
+  'ai-gateway-office.zeekrlife.com',
 ];
 
 function isAllowedProvider(url: string): boolean {
   try {
-    // Prepend https:// if no protocol is present (new URL requires one)
-    const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    // Enforce HTTPS to prevent MITM token theft
+    if (/^http:\/\//i.test(url)) return false;
+    // Prepend https:// if no protocol is present
+    const normalized = /^https:\/\//i.test(url) ? url : `https://${url}`;
     const hostname = new URL(normalized).hostname;
+    // Allow localhost for local LLMs
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') return true;
     return ALLOWED_DOMAINS.some(
       (d) => hostname === d || hostname.endsWith('.' + d)
     );
@@ -34,14 +39,17 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 20; // max requests per window
 const RATE_LIMIT_PRUNE_THRESHOLD = 1000; // prune expired entries when map exceeds this
+const RATE_LIMIT_PRUNE_INTERVAL = 60_000; // prune at most once per minute
+let lastPrunedAt = 0;
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    // Prune expired entries when map grows large
-    if (rateLimitMap.size > RATE_LIMIT_PRUNE_THRESHOLD) {
+    // Prune expired entries when map grows large (throttled to once per minute)
+    if (rateLimitMap.size > RATE_LIMIT_PRUNE_THRESHOLD && now - lastPrunedAt > RATE_LIMIT_PRUNE_INTERVAL) {
+      lastPrunedAt = now;
       for (const [key, val] of rateLimitMap) {
         if (now > val.resetAt) rateLimitMap.delete(key);
       }
@@ -111,6 +119,22 @@ export async function POST(request: NextRequest) {
     const token = config.token;
     const model = config.model || 'gpt-4o-mini';
 
+    // Validate baseUrl type
+    if (typeof baseUrl !== 'string') {
+      return NextResponse.json(
+        { error: 'Invalid baseUrl: must be a string' },
+        { status: 400 }
+      );
+    }
+
+    // Validate token type if provided
+    if (token !== undefined && typeof token !== 'string') {
+      return NextResponse.json(
+        { error: 'Invalid token: must be a string' },
+        { status: 400 }
+      );
+    }
+
     // Validate model name (prevent injection)
     if (typeof model !== 'string' || model.length > 100) {
       return NextResponse.json(
@@ -119,12 +143,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate history size
-    if (history && (!Array.isArray(history) || history.length > 50)) {
-      return NextResponse.json(
-        { error: 'Invalid history: must be an array of at most 50 messages' },
-        { status: 400 }
-      );
+    // Validate history size and shape, reject role:"system" injection
+    if (history) {
+      if (!Array.isArray(history) || history.length > 50) {
+        return NextResponse.json(
+          { error: 'Invalid history: must be an array of at most 50 messages' },
+          { status: 400 }
+        );
+      }
+      for (const msg of history) {
+        if (!msg || typeof msg !== 'object' || typeof msg.role !== 'string' || typeof msg.content !== 'string') {
+          return NextResponse.json(
+            { error: 'Invalid history: each message must have role and content strings' },
+            { status: 400 }
+          );
+        }
+        if (msg.role === 'system') {
+          return NextResponse.json(
+            { error: 'Invalid history: system role is not allowed' },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     // Validate customCommands size and structure
@@ -136,7 +176,8 @@ export async function POST(request: NextRequest) {
         );
       }
       for (const cmd of customCommands) {
-        if (typeof cmd.sid !== 'string' || typeof cmd.name !== 'string' ||
+        if (!cmd || typeof cmd !== 'object' ||
+            typeof cmd.sid !== 'string' || typeof cmd.name !== 'string' ||
             !Array.isArray(cmd.subFunctions) || !Array.isArray(cmd.negativeResponses)) {
           return NextResponse.json(
             { error: 'Invalid customCommands: each command must have sid (string), name (string), subFunctions (array), negativeResponses (array)' },
@@ -146,14 +187,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // SSRF protection: validate provider domain
+    // SSRF protection: validate provider domain (includes localhost for local LLMs)
     if (!isAllowedProvider(baseUrl)) {
       return NextResponse.json(
-        { error: 'Provider not allowed. Please use a known AI provider or localhost.' },
+        { error: 'Provider not allowed. Please use a known AI provider or localhost (HTTPS-only for cloud providers).' },
         { status: 403 }
       );
     }
 
+    // Require token for cloud providers (localhost is exempt)
     const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
     if (!token && !isLocal) {
       return NextResponse.json(

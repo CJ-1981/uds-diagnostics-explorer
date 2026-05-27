@@ -32,8 +32,8 @@ const ProtocolVisualizer = dynamic(() => import('@/components/uds/protocol-visua
 
 function TabLoading() {
   return (
-    <div className="flex items-center justify-center py-20" role="status">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    <div className="flex items-center justify-center py-20" role="status" aria-live="polite">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground motion-reduce:animate-none" />
       <span className="sr-only">Loading...</span>
     </div>
   );

@@ -171,7 +171,14 @@ function loadConfig(): LLMConfig {
   if (typeof window === 'undefined') return defaultConfig;
   try {
     const saved = sessionStorage.getItem(SESSION_KEY_CONFIG);
-    return saved ? JSON.parse(saved) : defaultConfig;
+    if (!saved) return defaultConfig;
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== 'object') return defaultConfig;
+    return {
+      baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : defaultConfig.baseUrl,
+      token: typeof parsed.token === 'string' ? parsed.token : defaultConfig.token,
+      model: typeof parsed.model === 'string' ? parsed.model : defaultConfig.model,
+    };
   } catch {
     return defaultConfig;
   }
@@ -349,7 +356,7 @@ export default function AISearch() {
                 token: config.token,
                 model: config.model,
               },
-              history: [...messages, userMessage].slice(0, -1).map((m) => ({
+              history: messages.map((m) => ({
                 role: m.role,
                 content: m.content,
               })),
