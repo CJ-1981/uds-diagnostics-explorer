@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import {
   Play, Square, RotateCcw, Cpu, Radio, Monitor,
   Shield, Download, RefreshCw, Timer, Activity,
@@ -76,10 +76,7 @@ function buildSingleSteps(command: UdsCommand, negative: boolean): SequenceStep[
 // ──── Component ────
 
 export default function ProtocolVisualizer() {
-  const allCommands = getAllCommands();
-  const uniqueCommands = useMemo(() => allCommands.filter(
-    (cmd, i, self) => self.findIndex((c) => c.sid === cmd.sid) === i
-  ), [allCommands]);
+  const allCommands = useMemo(() => getAllCommands(), []);
 
   const [presetId, setPresetId] = useState('security-access');
   const [singleSid, setSingleSid] = useState('0x22');
@@ -87,7 +84,6 @@ export default function ProtocolVisualizer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [visibleSteps, setVisibleSteps] = useState(0);
   const timeoutRefs = useRef<NodeJS.Timeout[]>([]);
-  const prefersReducedMotion = useReducedMotion();
 
   const preset = SEQUENCE_PRESETS.find((p) => p.id === presetId);
   const isSingleMode = presetId === 'single';
@@ -154,6 +150,7 @@ export default function ProtocolVisualizer() {
   const IconComponent = presetId !== 'single' ? presetIcons[presetId] || Info : FileQuestion;
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="space-y-4">
       {/* ── Controls ── */}
       <div className="flex flex-wrap gap-3 items-center">
@@ -196,7 +193,7 @@ export default function ProtocolVisualizer() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {uniqueCommands.map((cmd) => (
+                {allCommands.map((cmd) => (
                   <SelectItem key={cmd.sid} value={cmd.sid}>
                     <span className="font-mono text-xs">{cmd.sid}</span>
                     <span className="mx-2 text-muted-foreground">—</span>
@@ -672,6 +669,7 @@ export default function ProtocolVisualizer() {
         </CardContent>
       </Card>
     </div>
+    </MotionConfig>
   );
 }
 

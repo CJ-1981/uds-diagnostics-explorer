@@ -1011,7 +1011,7 @@ export function getAllCommands(): UdsCommand[] {
 export function findCommandBySid(sid: string): UdsCommand | undefined {
   // Search in order: session, data, io, memory, security
   // Prefer the primary (non-duplicate) definition
-  for (const group of udsGroups.slice(0, 4)) {
+  for (const group of udsGroups) {
     const match = group.commands.find((c) => c.sid === sid);
     if (match) return match;
   }

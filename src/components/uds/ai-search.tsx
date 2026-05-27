@@ -355,6 +355,7 @@ export default function AISearch() {
               })),
               customCommands,
             }),
+            signal: controller.signal,
           });
 
           if (!res.ok) {

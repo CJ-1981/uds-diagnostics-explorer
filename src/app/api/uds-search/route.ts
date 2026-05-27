@@ -19,10 +19,6 @@ const ALLOWED_DOMAINS = [
 function isAllowedProvider(url: string): boolean {
   try {
     const hostname = new URL(url).hostname;
-    // Allow localhost for local LLMs
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
-      return true;
-    }
     return ALLOWED_DOMAINS.some(
       (d) => hostname === d || hostname.endsWith('.' + d)
     );
@@ -122,12 +118,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate customCommands size
-    if (customCommands && (!Array.isArray(customCommands) || customCommands.length > 200)) {
-      return NextResponse.json(
-        { error: 'Invalid customCommands' },
-        { status: 400 }
-      );
+    // Validate customCommands size and structure
+    if (customCommands) {
+      if (!Array.isArray(customCommands) || customCommands.length > 200) {
+        return NextResponse.json(
+          { error: 'Invalid customCommands' },
+          { status: 400 }
+        );
+      }
+      for (const cmd of customCommands) {
+        if (typeof cmd.sid !== 'string' || typeof cmd.name !== 'string' ||
+            !Array.isArray(cmd.subFunctions) || !Array.isArray(cmd.negativeResponses)) {
+          return NextResponse.json(
+            { error: 'Invalid customCommands: each command must have sid (string), name (string), subFunctions (array), negativeResponses (array)' },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     // SSRF protection: validate provider domain

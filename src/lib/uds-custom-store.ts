@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useEffect } from 'react';
 import type { UdsCommand, UdsGroup } from './uds-data';
 import { udsGroups as defaultGroups } from './uds-data';
 
@@ -252,11 +253,13 @@ export const useUdsCustomStore = create<UdsCustomStore>((set, get) => ({
 // Hook to hydrate store from localStorage on client (call in app root)
 let _hydrated = false;
 export function useHydrateCustomStore() {
-  if (typeof window !== 'undefined' && !_hydrated) {
-    _hydrated = true;
-    const stored = loadFromStorage();
-    if (stored.length > 0) {
-      useUdsCustomStore.setState({ customSets: stored });
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !_hydrated) {
+      _hydrated = true;
+      const stored = loadFromStorage();
+      if (stored.length > 0) {
+        useUdsCustomStore.setState({ customSets: stored });
+      }
     }
-  }
+  }, []);
 }

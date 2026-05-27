@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
       return (
-        <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+        <div className="flex flex-col items-center justify-center py-16 px-4 text-center" role="alert" aria-live="assertive" aria-atomic="true">
           <div className="p-3 rounded-full bg-destructive/10 border border-destructive/20 mb-4">
             <AlertCircle className="h-8 w-8 text-destructive" />
           </div>
