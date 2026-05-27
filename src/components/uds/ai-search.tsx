@@ -388,7 +388,7 @@ export default function AISearch() {
         isSendingRef.current = false;
       }
     },
-    [isLoading, config]
+    [isLoading, config, messages]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

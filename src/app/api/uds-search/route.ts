@@ -18,7 +18,9 @@ const ALLOWED_DOMAINS = [
 
 function isAllowedProvider(url: string): boolean {
   try {
-    const hostname = new URL(url).hostname;
+    // Prepend https:// if no protocol is present (new URL requires one)
+    const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    const hostname = new URL(normalized).hostname;
     return ALLOWED_DOMAINS.some(
       (d) => hostname === d || hostname.endsWith('.' + d)
     );
@@ -31,12 +33,19 @@ function isAllowedProvider(url: string): boolean {
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_WINDOW = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 20; // max requests per window
+const RATE_LIMIT_PRUNE_THRESHOLD = 1000; // prune expired entries when map exceeds this
 
 function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
+    // Prune expired entries when map grows large
+    if (rateLimitMap.size > RATE_LIMIT_PRUNE_THRESHOLD) {
+      for (const [key, val] of rateLimitMap) {
+        if (now > val.resetAt) rateLimitMap.delete(key);
+      }
+    }
     return true;
   }
   if (entry.count >= RATE_LIMIT_MAX) return false;
