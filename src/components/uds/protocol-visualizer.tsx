@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { memo, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence, MotionConfig } from 'framer-motion';
 import {
   Play, Square, RotateCcw, Cpu, Radio, Monitor,
   Shield, Download, RefreshCw, Timer, Activity,
@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { getAllCommands, type UdsCommand } from '@/lib/uds-data';
 import type { ByteType } from './hex-byte-display';
+import { byteColorIntense, byteColorNegative } from '@/lib/uds-colors';
 import {
   SEQUENCE_PRESETS,
   type SequenceStep,
@@ -24,30 +25,6 @@ import {
 } from '@/lib/uds-sequences';
 
 // ──── Constants ────
-
-const colorMap: Record<ByteType, string> = {
-  sid: 'bg-emerald-500 text-emerald-950 border-emerald-600',
-  subfunction: 'bg-amber-500 text-amber-950 border-amber-600',
-  parameter: 'bg-violet-500 text-violet-950 border-violet-600',
-  data: 'bg-rose-500 text-rose-950 border-rose-600',
-  normal: 'bg-slate-500 text-slate-950 border-slate-600',
-};
-
-const softColorMap: Record<ByteType, string> = {
-  sid: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-  subfunction: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  parameter: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
-  data: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-  normal: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
-};
-
-const negSoftColorMap: Record<ByteType, string> = {
-  sid: 'bg-red-500/20 text-red-400 border-red-500/30',
-  subfunction: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  parameter: 'bg-red-500/20 text-red-400 border-red-500/30',
-  data: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  normal: 'bg-red-500/20 text-red-400 border-red-500/30',
-};
 
 const presetIcons: Record<string, typeof Shield> = {
   'security-access': Shield,
@@ -99,10 +76,7 @@ function buildSingleSteps(command: UdsCommand, negative: boolean): SequenceStep[
 // ──── Component ────
 
 export default function ProtocolVisualizer() {
-  const allCommands = getAllCommands();
-  const uniqueCommands = allCommands.filter(
-    (cmd, i, self) => self.findIndex((c) => c.sid === cmd.sid) === i
-  );
+  const allCommands = useMemo(() => getAllCommands(), []);
 
   const [presetId, setPresetId] = useState('security-access');
   const [singleSid, setSingleSid] = useState('0x22');
@@ -176,6 +150,7 @@ export default function ProtocolVisualizer() {
   const IconComponent = presetId !== 'single' ? presetIcons[presetId] || Info : FileQuestion;
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="space-y-4">
       {/* ── Controls ── */}
       <div className="flex flex-wrap gap-3 items-center">
@@ -218,7 +193,7 @@ export default function ProtocolVisualizer() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {uniqueCommands.map((cmd) => (
+                {allCommands.map((cmd) => (
                   <SelectItem key={cmd.sid} value={cmd.sid}>
                     <span className="font-mono text-xs">{cmd.sid}</span>
                     <span className="mx-2 text-muted-foreground">—</span>
@@ -431,7 +406,7 @@ export default function ProtocolVisualizer() {
                                 key={i}
                                 className={cn(
                                   'text-[9px] font-mono font-bold px-1 py-0.5 rounded border shadow-sm',
-                                  (step.isNegative ? negSoftColorMap : softColorMap)[step.byteTypes[i] || 'normal']
+                                  (step.isNegative ? byteColorNegative : byteColorIntense)[step.byteTypes[i] || 'normal']
                                 )}
                               >
                                 {b}
@@ -487,7 +462,7 @@ export default function ProtocolVisualizer() {
                                   key={i}
                                   className={cn(
                                     'text-[9px] font-mono font-bold px-1 py-0.5 rounded border shadow-sm',
-                                    (step.isNegative ? negSoftColorMap : softColorMap)[step.byteTypes[i] || 'normal']
+                                    (step.isNegative ? byteColorNegative : byteColorIntense)[step.byteTypes[i] || 'normal']
                                   )}
                                 >
                                   {b}
@@ -499,7 +474,7 @@ export default function ProtocolVisualizer() {
                                   key={i + 2}
                                   className={cn(
                                     'text-[9px] font-mono font-bold px-1 py-0.5 rounded border shadow-sm',
-                                    (step.isNegative ? negSoftColorMap : softColorMap)[step.byteTypes[i + 2] || 'normal']
+                                    (step.isNegative ? byteColorNegative : byteColorIntense)[step.byteTypes[i + 2] || 'normal']
                                   )}
                                 >
                                   {b}
@@ -606,7 +581,7 @@ export default function ProtocolVisualizer() {
                         animate={i < visibleSteps ? { opacity: 1 } : { opacity: 0.3 }}
                         className={cn(
                           'text-xs font-bold px-1.5 py-0.5 rounded border',
-                          (s.isNegative ? negSoftColorMap : softColorMap)[s.byteTypes[j] || 'normal']
+                          (s.isNegative ? byteColorNegative : byteColorIntense)[s.byteTypes[j] || 'normal']
                         )}
                       >
                         {b}
@@ -639,7 +614,7 @@ export default function ProtocolVisualizer() {
                         animate={i < visibleSteps ? { opacity: 1 } : { opacity: 0.3 }}
                         className={cn(
                           'text-xs font-bold px-1.5 py-0.5 rounded border',
-                          (s.isNegative ? negSoftColorMap : softColorMap)[s.byteTypes[j] || 'normal']
+                          (s.isNegative ? byteColorNegative : byteColorIntense)[s.byteTypes[j] || 'normal']
                         )}
                       >
                         {b}
@@ -694,12 +669,13 @@ export default function ProtocolVisualizer() {
         </CardContent>
       </Card>
     </div>
+    </MotionConfig>
   );
 }
 
 // ──── Step Detail Card ────
 
-function StepDetailCard({ step, stepIndex }: { step: SequenceStep; stepIndex: number }) {
+const StepDetailCard = memo(function StepDetailCard({ step, stepIndex }: { step: SequenceStep; stepIndex: number }) {
   return (
     <Card className={cn(
       'border transition-colors',
@@ -738,7 +714,7 @@ function StepDetailCard({ step, stepIndex }: { step: SequenceStep; stepIndex: nu
               key={i}
               className={cn(
                 'text-sm font-bold px-2 py-1 rounded border',
-                (step.isNegative ? negSoftColorMap : softColorMap)[step.byteTypes[i] || 'normal']
+                (step.isNegative ? byteColorNegative : byteColorIntense)[step.byteTypes[i] || 'normal']
               )}
             >
               {b}
@@ -771,4 +747,4 @@ function StepDetailCard({ step, stepIndex }: { step: SequenceStep; stepIndex: nu
       </CardContent>
     </Card>
   );
-}
+});

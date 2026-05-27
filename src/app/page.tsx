@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import dynamic from 'next/dynamic';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Terminal,
@@ -11,16 +12,37 @@ import {
   Sun,
   Cpu,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
-import CommandExplorer from '@/components/uds/command-explorer';
-import AISearch from '@/components/uds/ai-search';
-import ProtocolVisualizer from '@/components/uds/protocol-visualizer';
-import { useUdsCustomStore } from '@/lib/uds-custom-store';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { useUdsCustomStore, useHydrateCustomStore } from '@/lib/uds-custom-store';
+
+// Code-split tabs: each tab loads only when first visited
+const CommandExplorer = dynamic(() => import('@/components/uds/command-explorer'), {
+  loading: () => <TabLoading />,
+});
+const AISearch = dynamic(() => import('@/components/uds/ai-search'), {
+  loading: () => <TabLoading />,
+});
+const ProtocolVisualizer = dynamic(() => import('@/components/uds/protocol-visualizer'), {
+  loading: () => <TabLoading />,
+});
+
+function TabLoading() {
+  return (
+    <div className="flex items-center justify-center py-20" role="status" aria-live="polite">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground motion-reduce:animate-none" />
+      <span className="sr-only">Loading...</span>
+    </div>
+  );
+}
 
 function ServiceCounter() {
-  const totalCustom = useUdsCustomStore((s) => s.customSets.reduce((a, set) => a + set.commands.length, 0));
+  const totalCustom = useUdsCustomStore((s) =>
+    s.customSets.reduce((a, set) => a + set.commands.length, 0)
+  );
   return (
     <div className="hidden sm:flex items-center gap-1.5 mr-2">
       <Zap className="h-3 w-3 text-amber-400" />
@@ -34,6 +56,8 @@ function ServiceCounter() {
 export default function Home() {
   const [activeTab, setActiveTab] = useState('explorer');
   const { theme, setTheme } = useTheme();
+  const prefersReducedMotion = useReducedMotion();
+  useHydrateCustomStore();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -112,36 +136,42 @@ export default function Home() {
           </TabsList>
 
           <TabsContent value="explorer" className="mt-0">
-            <motion.div
-              key="explorer"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <CommandExplorer />
-            </motion.div>
+            <ErrorBoundary>
+              <motion.div
+                key="explorer"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={prefersReducedMotion ? false : { opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <CommandExplorer />
+              </motion.div>
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="ai-search" className="mt-0">
-            <motion.div
-              key="ai-search"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <AISearch />
-            </motion.div>
+            <ErrorBoundary>
+              <motion.div
+                key="ai-search"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={prefersReducedMotion ? false : { opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <AISearch />
+              </motion.div>
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="visualizer" className="mt-0">
-            <motion.div
-              key="visualizer"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ProtocolVisualizer />
-            </motion.div>
+            <ErrorBoundary>
+              <motion.div
+                key="visualizer"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={prefersReducedMotion ? false : { opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <ProtocolVisualizer />
+              </motion.div>
+            </ErrorBoundary>
           </TabsContent>
         </Tabs>
       </main>
@@ -156,12 +186,6 @@ export default function Home() {
             </div>
             <div className="flex items-center gap-3">
               <span>ISO 14229 Reference</span>
-              <span className="text-muted-foreground/50">|</span>
-              <span>35+ Diagnostic Services</span>
-              <span className="text-muted-foreground/50">|</span>
-              <span>Custom Command Import</span>
-              <span className="text-muted-foreground/50">|</span>
-              <span>Built with Next.js</span>
             </div>
           </div>
         </div>

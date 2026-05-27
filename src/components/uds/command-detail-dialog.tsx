@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import type { UdsCommand } from '@/lib/uds-data';
 import HexByteDisplay, { type ByteType, HexByteLegend } from './hex-byte-display';
@@ -15,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Info, ArrowRightLeft, AlertTriangle, Lightbulb, Link2, Pencil, Trash2, Star, ExternalLink } from 'lucide-react';
 import { udsGroups, getAllCommands } from '@/lib/uds-data';
+import { colorTextMap, colorBgMap } from '@/lib/uds-colors';
 
 interface CommandDetailDialogProps {
   command: UdsCommand | null;
@@ -32,25 +34,10 @@ function getGroupColor(command: UdsCommand): string {
   return group?.color || 'slate';
 }
 
-const colorTextMap: Record<string, string> = {
-  emerald: 'text-emerald-400',
-  amber: 'text-amber-400',
-  violet: 'text-violet-400',
-  rose: 'text-rose-400',
-  slate: 'text-slate-400',
-  cyan: 'text-cyan-400',
-};
+const colorTextMapLocal: Record<string, string> = colorTextMap;
+const colorBgMapLocal: Record<string, string> = colorBgMap;
 
-const colorBgMap: Record<string, string> = {
-  emerald: 'bg-emerald-500/10 border-emerald-500/20',
-  amber: 'bg-amber-500/10 border-amber-500/20',
-  violet: 'bg-violet-500/10 border-violet-500/20',
-  rose: 'bg-rose-500/10 border-rose-500/20',
-  slate: 'bg-slate-500/10 border-slate-500/20',
-  cyan: 'bg-cyan-500/10 border-cyan-500/20',
-};
-
-export default function CommandDetailDialog({
+function CommandDetailDialog({
   command,
   open,
   onOpenChange,
@@ -89,8 +76,8 @@ export default function CommandDetailDialog({
             <div
               className={cn(
                 'flex-shrink-0 text-2xl font-mono font-bold px-3 py-1.5 rounded-lg border',
-                colorBgMap[groupColor],
-                colorTextMap[groupColor]
+                colorBgMapLocal[groupColor],
+                colorTextMapLocal[groupColor]
               )}
             >
               {command.sid}
@@ -192,8 +179,8 @@ export default function CommandDetailDialog({
                       <code
                         className={cn(
                           'flex-shrink-0 text-xs font-mono font-bold px-2 py-0.5 rounded border',
-                          colorBgMap[groupColor],
-                          colorTextMap[groupColor]
+                          colorBgMapLocal[groupColor],
+                          colorTextMapLocal[groupColor]
                         )}
                       >
                         {sf.id}
@@ -302,3 +289,5 @@ export default function CommandDetailDialog({
     </Dialog>
   );
 }
+
+export default memo(CommandDetailDialog);

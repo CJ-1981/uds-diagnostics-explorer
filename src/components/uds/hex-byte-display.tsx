@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { cn } from '@/lib/utils';
 
 export type ByteType = 'sid' | 'subfunction' | 'parameter' | 'data' | 'normal';
@@ -26,7 +27,7 @@ const sizeMap = {
   lg: 'text-base px-3 py-1.5 min-w-[2.75rem] font-mono',
 };
 
-export default function HexByteDisplay({
+export default memo(function HexByteDisplay({
   bytes,
   className,
   byteTypes,
@@ -65,7 +66,7 @@ export default function HexByteDisplay({
       </div>
     </div>
   );
-}
+});
 
 // Legend component for byte color coding
 export function HexByteLegend() {

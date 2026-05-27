@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import type { UdsGroup, UdsCommand } from '@/lib/uds-data';
 import { motion } from 'framer-motion';
@@ -22,6 +23,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { gradientMap, accentColorMap, badgeBgMap } from '@/lib/uds-colors';
 
 const iconMap: Record<string, LucideIcon> = {
   Wifi,
@@ -30,33 +32,6 @@ const iconMap: Record<string, LucideIcon> = {
   HardDrive,
   Shield,
   Star,
-};
-
-const gradientMap: Record<string, string> = {
-  emerald: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40',
-  amber: 'from-amber-500/10 to-amber-500/5 border-amber-500/20 hover:border-amber-500/40',
-  violet: 'from-violet-500/10 to-violet-500/5 border-violet-500/20 hover:border-violet-500/40',
-  rose: 'from-rose-500/10 to-rose-500/5 border-rose-500/20 hover:border-rose-500/40',
-  slate: 'from-slate-500/10 to-slate-500/5 border-slate-500/20 hover:border-slate-500/40',
-  cyan: 'from-cyan-500/10 to-cyan-500/5 border-cyan-500/20 hover:border-cyan-500/40',
-};
-
-const accentColorMap: Record<string, string> = {
-  emerald: 'text-emerald-400',
-  amber: 'text-amber-400',
-  violet: 'text-violet-400',
-  rose: 'text-rose-400',
-  slate: 'text-slate-400',
-  cyan: 'text-cyan-400',
-};
-
-const badgeBgMap: Record<string, string> = {
-  emerald: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-  amber: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-  violet: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
-  rose: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
-  slate: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
-  cyan: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
 };
 
 interface CommandGroupCardProps {
@@ -69,7 +44,7 @@ interface CommandGroupCardProps {
   onDeleteCommand?: (sid: string) => void;
 }
 
-export default function CommandGroupCard({
+function CommandGroupCard({
   group,
   isExpanded,
   onToggle,
@@ -93,7 +68,7 @@ export default function CommandGroupCard({
       <button
         onClick={onToggle}
         className={cn(
-          'w-full flex items-start gap-4 p-4 sm:p-5 text-left bg-gradient-to-br rounded-xl transition-all',
+          'w-full flex items-start gap-4 p-4 sm:p-5 text-left bg-gradient-to-br rounded-xl transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           gradientMap[group.color] || gradientMap.cyan
         )}
       >
@@ -213,6 +188,7 @@ export default function CommandGroupCard({
                                 size="icon"
                                 className="h-6 w-6"
                                 onClick={() => onEditCommand(cmd)}
+                                aria-label={`Edit ${cmd.name}`}
                               >
                                 <Pencil className="h-3 w-3 text-muted-foreground hover:text-cyan-400" />
                               </Button>
@@ -228,6 +204,7 @@ export default function CommandGroupCard({
                                 size="icon"
                                 className="h-6 w-6"
                                 onClick={() => onDeleteCommand(cmd.sid)}
+                                aria-label={`Delete ${cmd.name}`}
                               >
                                 <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
                               </Button>
@@ -247,3 +224,5 @@ export default function CommandGroupCard({
     </motion.div>
   );
 }
+
+export default memo(CommandGroupCard);
