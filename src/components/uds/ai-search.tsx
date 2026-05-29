@@ -263,10 +263,21 @@ export default function AISearch() {
     setSettingsOpen(false);
   };
 
-  function isLocalhost(url: string): boolean {
+  // Internal/private hosts that must be called directly from the browser
+  // (Vercel server can't reach them). Includes localhost and private domains.
+  const INTERNAL_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '[::1]',
+    'ai-gateway-office.zeekrlife.com',
+  ];
+
+  function isDirectCall(url: string): boolean {
     try {
       const u = new URL(url);
-      return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+      return INTERNAL_HOSTS.some(
+        (h) => u.hostname === h || u.hostname.endsWith('.' + h)
+      );
     } catch {
       return false;
     }
@@ -291,7 +302,7 @@ export default function AISearch() {
       if (isSendingRef.current) return;
       isSendingRef.current = true;
 
-      if (!config.token && !isLocalhost(config.baseUrl)) {
+      if (!config.token && !isDirectCall(config.baseUrl)) {
         setError('Please configure your API token in settings first.');
         setSettingsOpen(true);
         isSendingRef.current = false;
@@ -318,7 +329,7 @@ export default function AISearch() {
 
         let answer: string;
 
-        if (isLocalhost(config.baseUrl)) {
+        if (isDirectCall(config.baseUrl)) {
           const { generateDatabaseContext } = await import('@/lib/uds-data');
           try {
             answer = await callLocalLLMDirect(
@@ -338,9 +349,10 @@ export default function AISearch() {
               msg.includes('fetch failed')
             ) {
               throw new Error(
-                'Cannot reach local LLM — this app is running on a remote server. ' +
-                  'Local LLMs (localhost) only work when you run the app locally with "npm run dev". ' +
-                  'Alternatively, use a cloud AI provider (click Settings → browse providers).',
+                'Cannot reach this AI provider — it may only be accessible from your local network. ' +
+                  'If the app is deployed remotely (e.g. Vercel), private/internal hosts can only be reached ' +
+                  'when you run the app locally with "npm run dev". ' +
+                  'Alternatively, use a public cloud AI provider (click Settings → browse providers).',
               );
             }
             throw localErr;

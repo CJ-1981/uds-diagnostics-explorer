@@ -241,3 +241,5 @@ test
 prompt
 server.log
 /skills/
+
+.vercel
