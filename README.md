@@ -1,5 +1,7 @@
 # UDS Diagnostics Explorer
 
+**Live app: [uds-diagnostics-explorer.vercel.app](https://uds-diagnostics-explorer.vercel.app)**
+
 Interactive web app for exploring, searching, and visualizing UDS (Unified Diagnostic Services, ISO 14229) automotive diagnostic commands. Built as a reference tool for automotive engineers and diagnostics developers.
 
 ## Features
